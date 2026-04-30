@@ -10,5 +10,6 @@ import java.util.List;
 @Repository
 public interface ViajeRepository extends JpaRepository<Viaje, Long> {
     List<Viaje> findByFechaBetween(LocalDate start, LocalDate end);
+
     List<Viaje> findByConductorContainingIgnoreCase(String conductor);
 }

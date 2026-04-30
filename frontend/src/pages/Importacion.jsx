@@ -1,227 +1,306 @@
 import React, { useState } from 'react';
-import { Box, Button, Typography, Paper, Alert, Snackbar, FormControl, FormLabel, RadioGroup, FormControlLabel, Radio } from '@mui/material';
+import { Box, Button, Typography, Paper, Alert, Snackbar, FormControl, FormLabel, RadioGroup, FormControlLabel, Radio, Chip } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import * as XLSX from 'xlsx';
 import api from '../api';
 
-const columnsCostos = [
-  { field: 'fecha', headerName: 'Fecha', width: 130, editable: true },
-  { field: 'conductor', headerName: 'Conductor', width: 150, editable: true },
-  { field: 'cliente', headerName: 'Cliente', width: 150, editable: true },
-  { field: 'origen', headerName: 'Origen', width: 150, editable: true },
-  { field: 'destino', headerName: 'Destino', width: 150, editable: true },
-  { field: 'peajes', headerName: 'Peajes ($)', width: 110, editable: true, type: 'number' },
-  { field: 'otrosCostos', headerName: 'Otros Costos ($)', width: 130, editable: true, type: 'number' },
-  { field: 'total', headerName: 'Total ($)', width: 110, editable: true, type: 'number' },
+const columnsMaestro = [
+  { field: 'nombre', headerName: 'Nombre', width: 250, editable: true },
+  { field: 'telefono', headerName: 'Teléfono', width: 150, editable: true },
+  { field: 'direccion', headerName: 'Dirección', width: 300, editable: true },
+  { field: 'comuna', headerName: 'Comuna', width: 150, editable: true },
 ];
 
-const columnsPasajeros = [
-  { field: 'turno', headerName: 'Turno', width: 120, editable: false },
-  { field: 'area', headerName: 'Área', width: 180, editable: true },
-  { field: 'cargo', headerName: 'Cargo', width: 180, editable: true },
-  { field: 'nombre', headerName: 'Nombre', width: 200, editable: true },
-  { field: 'telefono', headerName: 'Teléfono', width: 120, editable: true },
-  { field: 'direccion', headerName: 'Dirección', width: 200, editable: true },
+const columnsTurnosListos = [
+  { field: 'turno', headerName: 'Turno / Pestaña', width: 150 },
+  { field: 'nombreExcel', headerName: 'Pasajero', width: 250 },
+  { field: 'estado', headerName: 'Estado', width: 150, renderCell: () => <Chip label="Vinculado a BDD" color="success" size="small" /> },
 ];
 
 const Importacion = () => {
-  const [importType, setImportType] = useState('pasajeros'); // 'pasajeros' o 'costos'
-  const [rows, setRows] = useState([]);
+  const [importType, setImportType] = useState('maestro'); // 'maestro' o 'turnos'
+
+  const [maestroRows, setMaestroRows] = useState([]); // Datos cuando se sube BDD
+
+  const [turnosListos, setTurnosListos] = useState([]); // Turnos que hicieron match perfecto
+  const [conflictos, setConflictos] = useState([]); // Turnos con discrepancias
+  const [pasajerosNuevos, setPasajerosNuevos] = useState([]); // Turnos sin match en BDD
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ open: false, text: '', type: 'success' });
 
-  const handleFileUpload = (e) => {
+  // -------- PARSEADORES --------
+  const parsearMaestroPasajeros = (workbook) => {
+    let rows = [];
+    let globalId = 1;
+    let sheetName = workbook.SheetNames.find(s => s.toUpperCase().includes('BDD'));
+
+    // Los archivos .CSV no tienen "pestañas" con nombre, SheetJS les asigna "Sheet1" por defecto.
+    // Si no encuentra 'BDD', asume que la primera pestaña (única en CSV) es la que se desea subir.
+    if (!sheetName) {
+      sheetName = workbook.SheetNames[0];
+    }
+
+    const rows2D = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+    for (let i = 1; i < rows2D.length; i++) {
+      const row = rows2D[i];
+      if (!row || row.length === 0) continue;
+
+      const nombre = row[0];
+      const nombreStr = typeof nombre === 'string' ? nombre.trim() : String(nombre || '').trim();
+
+      if (nombreStr === '' || nombreStr.toUpperCase() === 'NO UTILIZA EL SERVICIO') continue;
+
+      rows.push({
+        id: globalId++,
+        nombre: nombreStr,
+        telefono: row[1] ? String(row[1]).trim() : '',
+        direccion: row[2] ? String(row[2]).trim() : '',
+        comuna: row[3] ? String(row[3]).trim() : ''
+      });
+    }
+    return rows;
+  };
+
+  const parsearTurnosSemanales = (workbook) => {
+    let rows = [];
+    let globalId = 1;
+
+    workbook.SheetNames.forEach(sheetName => {
+      const sheetUpper = sheetName.toUpperCase().trim();
+      if (sheetUpper !== 'BDD' && !sheetUpper.includes('INSTRUCCIONES')) {
+        const rows2D = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+
+        for (let i = 1; i < rows2D.length; i++) {
+          const row = rows2D[i];
+          if (!row || row.length === 0) continue;
+
+          const nombre = row[0];
+          const nombreStr = typeof nombre === 'string' ? nombre.trim() : String(nombre || '').trim();
+          if (nombreStr === '' || nombreStr.toUpperCase() === 'SIN DATO') continue;
+
+          rows.push({
+            id: globalId++,
+            turno: sheetName,
+            nombreExcel: nombreStr,
+            telefonoExcel: row[1] ? String(row[1]).trim() : '',
+            direccionExcel: row[2] ? String(row[2]).trim() : ''
+          });
+        }
+      }
+    });
+    return rows;
+  };
+
+  // -------- MANEJO DE ARCHIVO --------
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    setLoading(true);
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const data = new Uint8Array(event.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      
-      let formattedRows = [];
-      let globalId = 1;
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
 
-      if (importType === 'pasajeros') {
-        // Lógica Avanzada para Planilla de Pasajeros con celdas basura y múltiples filas de cabecera
-        workbook.SheetNames.forEach(sheetName => {
-          const worksheet = workbook.Sheets[sheetName];
-          // Opción { header: 1 } nos devuelve un Array 2D (matrices de filas x columnas), ideal para Excels "sucios"
-          const rows2D = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-          
-          // 1. Omitir las primeras 4 filas (índices 0, 1, 2, 3). Empezamos desde la 5 (índice 4).
-          for (let i = 4; i < rows2D.length; i++) {
-            const row = rows2D[i];
-            if (!row || row.length === 0) continue; // Saltar filas completamente vacías
+        if (importType === 'maestro') {
+          const parsed = parsearMaestroPasajeros(workbook);
+          setMaestroRows(parsed);
+          setTurnosListos([]);
+          setConflictos([]);
+          setPasajerosNuevos([]);
+        } else {
+          // Lógica de Planificación Semanal
+          const parsedTurnos = parsearTurnosSemanales(workbook);
 
-            const area = row[0]; // Columna A
-            const cargo = row[1]; // Columna B
-            const nombreManana = row[2]; // Columna C
-            const nombreTarde = row[3]; // Columna D
-            const nombreNoche = row[4]; // Columna E
-
-            // 7. FILTRO IMPORTANTE DE PARADA
-            if (typeof area === 'string') {
-              const areaUpper = area.toUpperCase();
-              if (
-                areaUpper.includes('LICENCIA MEDICA') ||
-                areaUpper.includes('VACACIONES') ||
-                areaUpper.includes('CENTRO DE COSTO')
-              ) {
-                // Detenemos la extracción de esta hoja al encontrar la zona "basura"
-                break;
-              }
-            }
-
-            // Helpers para limpiar espacios e identificar si la celda tiene valor real
-            const cleanStr = (val) => (val ? String(val).trim() : '');
-
-            // 3. Evaluar turno MAÑANA (Columna C)
-            if (cleanStr(nombreManana) !== '') {
-              formattedRows.push({
-                id: globalId++,
-                turno: "MAÑANA",
-                area: cleanStr(area),
-                cargo: cleanStr(cargo),
-                nombre: cleanStr(nombreManana),
-                telefono: '', // Campos extra listos para ser editados manualmentte
-                direccion: ''
-              });
-            }
-
-            // 4. Evaluar turno TARDE (Columna D)
-            if (cleanStr(nombreTarde) !== '') {
-              formattedRows.push({
-                id: globalId++,
-                turno: "TARDE",
-                area: cleanStr(area),
-                cargo: cleanStr(cargo),
-                nombre: cleanStr(nombreTarde),
-                telefono: '',
-                direccion: ''
-              });
-            }
-
-            // 5. Evaluar turno NOCHE (Columna E)
-            if (cleanStr(nombreNoche) !== '') {
-              formattedRows.push({
-                id: globalId++,
-                turno: "NOCHE",
-                area: cleanStr(area),
-                cargo: cleanStr(cargo),
-                nombre: cleanStr(nombreNoche),
-                telefono: '',
-                direccion: ''
-              });
-            }
+          // 1. Obtener Maestro de la BDD para hacer Match
+          let bddPasajeros = [];
+          try {
+            const res = await api.get('/pasajeros');
+            bddPasajeros = res.data;
+          } catch (err) {
+            console.error("No se pudo obtener la BDD de pasajeros", err);
           }
-        });
-      } else {
-        // Lógica para Reporte de Costos (Lee la primera pestaña)
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        formattedRows = jsonData.map((row) => ({
-          id: globalId++,
-          fecha: row.Fecha || row.fecha || '',
-          conductor: row.Conductor || row.conductor || '',
-          cliente: row.Cliente || row.cliente || '',
-          origen: row.Origen || row.origen || '',
-          destino: row.Destino || row.destino || '',
-          peajes: parseFloat(row.Peajes || row.peajes || 0),
-          otrosCostos: parseFloat(row['Otros Costos'] || row.otrosCostos || 0),
-          total: parseFloat(row.Total || row.total || 0),
-        }));
+          const conf = [];
+          const listos = [];
+          const nuevos = [];
+
+          // 2. Cruce de Datos
+          parsedTurnos.forEach(filaExcel => {
+            const pasajeroMatch = bddPasajeros.find(p => p.nombre.toUpperCase() === filaExcel.nombreExcel.toUpperCase());
+
+            if (pasajeroMatch) {
+              // Validar diferencias (solo si el excel trae datos y difieren)
+              const telDiff = filaExcel.telefonoExcel && filaExcel.telefonoExcel !== pasajeroMatch.telefono;
+              const dirDiff = filaExcel.direccionExcel && filaExcel.direccionExcel !== pasajeroMatch.direccion;
+
+              if (telDiff || dirDiff) {
+                conf.push({
+                  ...filaExcel,
+                  telefonoBDD: pasajeroMatch.telefono || 'Vacío',
+                  direccionBDD: pasajeroMatch.direccion || 'Vacío',
+                  pasajeroId: pasajeroMatch.id,
+                  objPasajeroBase: pasajeroMatch // Guardamos para actualizar después
+                });
+              } else {
+                listos.push({ ...filaExcel, pasajeroId: pasajeroMatch.id });
+              }
+            } else {
+              nuevos.push(filaExcel);
+            }
+          });
+
+          setTurnosListos(listos);
+          setConflictos(conf);
+          setPasajerosNuevos(nuevos);
+          setMaestroRows([]);
+
+          if (conf.length > 0 || nuevos.length > 0) {
+            setMessage({ open: true, text: 'Atención: Se encontraron conflictos o pasajeros nuevos.', type: 'warning' });
+          } else {
+            setMessage({ open: true, text: 'Lectura perfecta. Todos los turnos cruzaron con el maestro.', type: 'success' });
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        setMessage({ open: true, text: err.message || 'Error al procesar el Excel.', type: 'error' });
       }
-
-      setRows(formattedRows);
+      setLoading(false);
     };
     reader.readAsArrayBuffer(file);
-    
-    // Reset input
-    e.target.value = null;
+    e.target.value = ''; // Reset input
   };
 
-  // Esta función es vital: permite al usuario hacer doble clic en celdas vacías o erróneas en el DataGrid
-  // y corregirlas manualmente. El DataGrid devuelve la nueva fila (newRow) actualizada.
-  const processRowUpdate = (newRow) => {
-    const updatedRow = { ...newRow };
-    setRows(rows.map((row) => (row.id === newRow.id ? updatedRow : row)));
-    return updatedRow;
-  };
-
-  const handleSave = async () => {
+  // -------- GUARDAR MAESTRO (BDD) --------
+  const handleSaveMaestro = async () => {
     setLoading(true);
     try {
-      // Removemos el ID temporal del Frontend antes de enviar a Spring Boot
-      const dataToSave = rows.map(({ id, ...rest }) => rest);
-      
-      const endpoint = importType === 'pasajeros' ? '/pasajeros/batch' : '/viajes/batch';
-      await api.post(endpoint, dataToSave);
-      
-      setMessage({ open: true, text: '¡Datos importados y guardados correctamente!', type: 'success' });
-      setRows([]);
+      const dataToSave = maestroRows.map(({ id, ...rest }) => rest);
+      await api.post('/pasajeros/batch', dataToSave);
+      setMessage({ open: true, text: '¡Base de Datos Maestra actualizada exitosamente!', type: 'success' });
+      setMaestroRows([]);
     } catch (error) {
-      console.error(error);
-      setMessage({ open: true, text: 'Error de comunicación con el servidor local.', type: 'error' });
+      setMessage({ open: true, text: 'Error al guardar Maestro.', type: 'error' });
     }
     setLoading(false);
   };
 
+  // -------- RESOLVER CONFLICTOS EN PANTALLA --------
+  const resolverConflicto = async (row, accion) => {
+    if (accion === 'ACTUALIZAR_BDD') {
+      // Usamos el Endpoint batch de Spring Boot para sobreescribir los datos
+      const pasajeroActualizado = {
+        ...row.objPasajeroBase,
+        telefono: row.telefonoExcel || row.objPasajeroBase.telefono,
+        direccion: row.direccionExcel || row.objPasajeroBase.direccion
+      };
+      try {
+        await api.post('/pasajeros/batch', [pasajeroActualizado]);
+        setMessage({ open: true, text: `Maestro actualizado para ${row.nombreExcel}`, type: 'success' });
+      } catch (e) {
+        console.error(e);
+        setMessage({ open: true, text: 'Error al actualizar base local', type: 'error' });
+      }
+    }
+
+    // De cualquier forma (Actualizar o Ignorar), el turno ya está resuelto y pasa a la lista verde
+    setTurnosListos([...turnosListos, { ...row }]);
+    setConflictos(conflictos.filter(c => c.id !== row.id));
+  };
+
+  // Columnas para la tabla naranja de conflictos
+  const columnsConflictos = [
+    { field: 'nombreExcel', headerName: 'Pasajero', width: 200 },
+    { field: 'telefonoExcel', headerName: 'Tel Excel', width: 130 },
+    { field: 'telefonoBDD', headerName: 'Tel Maestro', width: 130 },
+    { field: 'direccionExcel', headerName: 'Dir Excel', width: 200 },
+    { field: 'direccionBDD', headerName: 'Dir Maestro', width: 200 },
+    {
+      field: 'acciones',
+      headerName: 'Resolución de Discrepancia',
+      width: 350,
+      renderCell: (params) => (
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" variant="contained" color="warning" onClick={() => resolverConflicto(params.row, 'ACTUALIZAR_BDD')}>
+            Sobrescribir Maestro
+          </Button>
+          <Button size="small" variant="outlined" color="primary" onClick={() => resolverConflicto(params.row, 'IGNORAR_EXCEL')}>
+            Ignorar Excel
+          </Button>
+        </Box>
+      ),
+    },
+  ];
+
   return (
     <Box>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>Importación Dinámica de Datos</Typography>
-      
-      <Paper sx={{ p: 3, mb: 3, background: '#f8f9fa', border: '1px solid #e0e0e0' }}>
+      <Typography variant="h4" fontWeight="bold" gutterBottom>Importación Inteligente</Typography>
+
+      <Paper sx={{ p: 3, mb: 3, background: '#f8f9fa' }}>
         <FormControl component="fieldset">
-          <FormLabel component="legend" sx={{ fontWeight: 'bold', color: '#333' }}>1. Selecciona el Tipo de Documento Excel a importar:</FormLabel>
-          <RadioGroup 
-            row 
-            value={importType} 
-            onChange={(e) => {
-              setImportType(e.target.value);
-              setRows([]); // Limpiamos la tabla si cambia el tipo
-            }}
-            sx={{ mt: 1 }}
-          >
-            <FormControlLabel value="pasajeros" control={<Radio color="primary" />} label="Planilla de Pasajeros/Turnos" />
-            <FormControlLabel value="costos" control={<Radio color="primary" />} label="Reporte de Costos de Viaje" />
+          <FormLabel component="legend" sx={{ fontWeight: 'bold' }}>1. Selecciona qué estás importando:</FormLabel>
+          <RadioGroup row value={importType} onChange={(e) => {
+            setImportType(e.target.value);
+            setMaestroRows([]); setTurnosListos([]); setConflictos([]); setPasajerosNuevos([]);
+          }}>
+            <FormControlLabel value="maestro" control={<Radio color="primary" />} label="Base de Pasajeros (BDD)" />
+            <FormControlLabel value="turnos" control={<Radio color="secondary" />} label="Planificación Semanal (Turnos)" />
           </RadioGroup>
         </FormControl>
       </Paper>
 
-      <Paper sx={{ p: 3, mb: 3, display: 'flex', alignItems: 'center', gap: 2, background: importType === 'pasajeros' ? '#e3f2fd' : '#e8f5e9' }}>
-        <Button variant="contained" component="label" color={importType === 'pasajeros' ? 'secondary' : 'primary'}>
-          Subir Excel ({importType === 'pasajeros' ? 'Pasajeros' : 'Costos'})
+      <Paper sx={{ p: 3, mb: 3, display: 'flex', alignItems: 'center', gap: 2, background: importType === 'maestro' ? '#e8f5e9' : '#f3e5f5' }}>
+        <Button variant="contained" component="label" color={importType === 'maestro' ? 'primary' : 'secondary'}>
+          Subir Excel ({importType === 'maestro' ? 'BDD' : 'Turnos'})
           <input type="file" hidden accept=".xlsx, .xls, .csv" onChange={handleFileUpload} />
         </Button>
-        <Typography variant="body2" color="textSecondary">
-          Si hay celdas vacías, haz doble clic en la tabla inferior para rellenarlas antes de guardar.
-        </Typography>
       </Paper>
 
-      {rows.length > 0 && (
+      {/* RENDERIZADO 1: MAESTRO BDD */}
+      {maestroRows.length > 0 && (
         <Paper sx={{ height: 500, width: '100%', mb: 3, p: 2 }}>
-          <DataGrid 
-            rows={rows} 
-            columns={importType === 'pasajeros' ? columnsPasajeros : columnsCostos} 
-            processRowUpdate={processRowUpdate}
-            experimentalFeatures={{ newEditingApi: true }}
-            disableRowSelectionOnClick
-          />
+          <Typography variant="h6" gutterBottom>Vista Previa de la Base de Datos Maestra</Typography>
+          <DataGrid rows={maestroRows} columns={columnsMaestro} disableRowSelectionOnClick />
           <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="contained" color="primary" size="large" onClick={handleSave} disabled={loading}>
-              {loading ? 'Guardando...' : 'Guardar Datos en Base Local'}
-            </Button>
+            <Button variant="contained" color="primary" onClick={handleSaveMaestro} disabled={loading}>Guardar Maestro en Base Local</Button>
           </Box>
         </Paper>
       )}
 
-      <Snackbar open={message.open} autoHideDuration={6000} onClose={() => setMessage({ ...message, open: false })}>
-        <Alert onClose={() => setMessage({ ...message, open: false })} severity={message.type} sx={{ width: '100%' }}>
-          {message.text}
+      {/* RENDERIZADO 2: CONFLICTOS AL SUBIR TURNOS */}
+      {conflictos.length > 0 && (
+        <Paper sx={{ height: 400, width: '100%', mb: 3, p: 2, border: '2px solid orange' }}>
+          <Typography variant="h6" color="warning.main" gutterBottom>⚠️ Discrepancias Detectadas (Excel vs Maestro)</Typography>
+          <Typography variant="body2" color="textSecondary" mb={2}>Estos pasajeros tienen un teléfono o dirección distinto en el Excel. Elige qué hacer.</Typography>
+          <DataGrid rows={conflictos} columns={columnsConflictos} disableRowSelectionOnClick />
+        </Paper>
+      )}
+
+      {/* RENDERIZADO 3: PASAJEROS INEXISTENTES EN EL MAESTRO */}
+      {pasajerosNuevos.length > 0 && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          Hay {pasajerosNuevos.length} pasajero(s) en la Planificación que NO existen en el Maestro. Debes agregarlos a la pestaña "BDD" y volver a importarla primero.
+          Ejemplo: "{pasajerosNuevos[0].nombreExcel}"
         </Alert>
+      )}
+
+      {/* RENDERIZADO 4: TURNOS QUE HICIERON MATCH PERFECTO O QUE FUERON RESUELTOS */}
+      {turnosListos.length > 0 && (
+        <Paper sx={{ height: 400, width: '100%', mb: 3, p: 2 }}>
+          <Typography variant="h6" color="success.main" gutterBottom>✅ Turnos Validados (Listos para crear la Semana)</Typography>
+          <DataGrid rows={turnosListos} columns={columnsTurnosListos} disableRowSelectionOnClick />
+          {conflictos.length === 0 && pasajerosNuevos.length === 0 && (
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="contained" color="secondary" onClick={() => alert('Falta conectar este Endpoint final!')}>Generar Horario Semanal Definitivo</Button>
+            </Box>
+          )}
+        </Paper>
+      )}
+
+      <Snackbar open={message.open} autoHideDuration={6000} onClose={() => setMessage({ ...message, open: false })}>
+        <Alert onClose={() => setMessage({ ...message, open: false })} severity={message.type} sx={{ width: '100%' }}>{message.text}</Alert>
       </Snackbar>
     </Box>
   );

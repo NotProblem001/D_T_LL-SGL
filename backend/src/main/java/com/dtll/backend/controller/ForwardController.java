@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 @Controller
 public class ForwardController {
-    @RequestMapping(value = {"/historial"})
+    @RequestMapping(value = { "/historial" })
     public String redirect() {
         return "forward:/index.html";
     }

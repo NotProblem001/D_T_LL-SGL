@@ -17,17 +17,38 @@ public class DocumentoAdjunto {
     @JsonIgnore
     private Viaje viaje;
 
-    public DocumentoAdjunto() {}
+    public DocumentoAdjunto() {
+    }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    
-    public String getNombreArchivo() { return nombreArchivo; }
-    public void setNombreArchivo(String nombreArchivo) { this.nombreArchivo = nombreArchivo; }
-    
-    public String getRutaLocal() { return rutaLocal; }
-    public void setRutaLocal(String rutaLocal) { this.rutaLocal = rutaLocal; }
-    
-    public Viaje getViaje() { return viaje; }
-    public void setViaje(Viaje viaje) { this.viaje = viaje; }
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getNombreArchivo() {
+        return nombreArchivo;
+    }
+
+    public void setNombreArchivo(String nombreArchivo) {
+        this.nombreArchivo = nombreArchivo;
+    }
+
+    public String getRutaLocal() {
+        return rutaLocal;
+    }
+
+    public void setRutaLocal(String rutaLocal) {
+        this.rutaLocal = rutaLocal;
+    }
+
+    public Viaje getViaje() {
+        return viaje;
+    }
+
+    public void setViaje(Viaje viaje) {
+        this.viaje = viaje;
+    }
 }

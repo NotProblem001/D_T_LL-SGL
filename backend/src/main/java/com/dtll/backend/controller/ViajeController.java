@@ -40,7 +40,8 @@ public class ViajeController {
     }
 
     @PostMapping("/{id}/adjuntos")
-    public ResponseEntity<DocumentoAdjunto> uploadAdjunto(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
+    public ResponseEntity<DocumentoAdjunto> uploadAdjunto(@PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
         try {
             DocumentoAdjunto doc = viajeService.adjuntarArchivo(id, file);
             return ResponseEntity.ok(doc);
@@ -65,7 +66,8 @@ public class ViajeController {
 
             if (resource.exists() || resource.isReadable()) {
                 return ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.getNombreArchivo() + "\"")
+                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                                "attachment; filename=\"" + doc.getNombreArchivo() + "\"")
                         .contentType(MediaType.APPLICATION_OCTET_STREAM)
                         .body(resource);
             } else {

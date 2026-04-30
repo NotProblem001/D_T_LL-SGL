@@ -13,15 +13,15 @@ const Layout = ({ children }) => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
             🚕 DTLL Gestión
           </Typography>
-          <Button 
-            color="inherit" 
+          <Button
+            color="inherit"
             onClick={() => navigate('/')}
             sx={{ fontWeight: location.pathname === '/' ? 'bold' : 'normal', opacity: location.pathname === '/' ? 1 : 0.7 }}
           >
             Importar Diario
           </Button>
-          <Button 
-            color="inherit" 
+          <Button
+            color="inherit"
             onClick={() => navigate('/historial')}
             sx={{ fontWeight: location.pathname === '/historial' ? 'bold' : 'normal', opacity: location.pathname === '/historial' ? 1 : 0.7 }}
           >
