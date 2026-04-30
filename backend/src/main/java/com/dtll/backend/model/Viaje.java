@@ -20,6 +20,14 @@ public class Viaje {
     private Double otrosCostos;
     private Double total;
 
+    @ManyToMany
+    @JoinTable(
+        name = "viaje_pasajero",
+        joinColumns = @JoinColumn(name = "viaje_id"),
+        inverseJoinColumns = @JoinColumn(name = "pasajero_id")
+    )
+    private List<Pasajero> pasajeros = new ArrayList<>();
+
     public Viaje() {}
 
     public Long getId() { return id; }
@@ -48,4 +56,7 @@ public class Viaje {
     
     public Double getTotal() { return total; }
     public void setTotal(Double total) { this.total = total; }
+
+    public List<Pasajero> getPasajeros() { return pasajeros; }
+    public void setPasajeros(List<Pasajero> pasajeros) { this.pasajeros = pasajeros; }
 }
